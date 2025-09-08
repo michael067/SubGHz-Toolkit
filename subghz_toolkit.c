@@ -65,6 +65,7 @@ typedef enum
     SubGhzToolkitSubmenuIndexListProtocols,
     SubGhzToolkitSubmenuIndexExportProtocolInfo,
     SubGhzToolkitSubmenuIndexAdvancedAnalysis,
+    SubGhzToolkitSubmenuIndexExportNiceFlorS,
     SubGhzToolkitSubmenuIndexAbout,
     SubGhzToolkitSubmenuIndexProtocolDetails = 100,
 } SubGhzToolkitSubmenuIndex;
@@ -139,6 +140,23 @@ static void subghz_toolkit_submenu_callback(void *context, uint32_t index)
         {
             subghz_toolkit_extract_protocol_details(app, protocol->name);
         }
+    }
+    else if(index == SubGhzToolkitSubmenuIndexExportNiceFlorS)
+    {
+    view_dispatcher_switch_to_view(app->view_dispatcher, SubGhzToolkitViewLoading);
+    if(subghz_toolkit_export_niceflors_keys(app)) {
+        popup_set_header(app->popup, "Success!", 64, 10, AlignCenter, AlignTop);
+        popup_set_text(app->popup, "Keys exported to:\n/ext/subghz/analysis/nice_flor_s_keys.txt",
+                       64, 20, AlignCenter, AlignTop);
+    } else {
+        popup_set_header(app->popup, "Error!", 64, 10, AlignCenter, AlignTop);
+        popup_set_text(app->popup, "Failed to export keys", 64, 20, AlignCenter, AlignTop);
+    }
+    popup_set_callback(app->popup, NULL);
+    popup_set_context(app->popup, app);
+    popup_set_timeout(app->popup, 3000);
+    popup_enable_timeout(app->popup);
+    view_dispatcher_switch_to_view(app->view_dispatcher, SubGhzToolkitViewPopup);
     }
 }
 
@@ -502,6 +520,67 @@ static void subghz_toolkit_deep_protocol_analysis(Stream *stream, const SubGhzPr
     stream_write_format(stream, "    +0x10: encoder  = %p\n", &protocol->encoder);
 }
 
+static bool subghz_toolkit_export_niceflors_keys(SubGhzToolkitApp *app)
+{
+    UNUSED(app);
+    bool success = false;
+
+    Storage* storage = furi_record_open(RECORD_STORAGE);
+    Stream* stream = file_stream_alloc(storage);
+
+    do {
+        // Charger le fichier binaire
+        File* file = storage_file_alloc(storage);
+        if(!storage_file_open(file, EXT_PATH("subghz/assets/nice_flor_s"), FSAM_READ, FSOM_OPEN_EXISTING)) {
+            FURI_LOG_E(TAG, "Failed to open nice_flor_s");
+            storage_file_free(file);
+            break;
+        }
+
+        uint8_t buffer[32];
+        size_t read = storage_file_read(file, buffer, sizeof(buffer));
+        storage_file_free(file);
+
+        if(read != 32) {
+            FURI_LOG_E(TAG, "Invalid file size (expected 32 bytes)");
+            break;
+        }
+
+        // Créer le dossier d'analyse
+        storage_simply_mkdir(storage, EXT_PATH("subghz"));
+        storage_simply_mkdir(storage, SUBGHZ_ANALYSIS_DIR);
+
+        if(!file_stream_open(stream, SUBGHZ_ANALYSIS_DIR "/nice_flor_s_keys.txt",
+                             FSAM_WRITE, FSOM_CREATE_ALWAYS)) {
+            FURI_LOG_E(TAG, "Failed to open output file");
+            break;
+        }
+
+        stream_write_format(stream,
+            "====================================\n"
+            "  Flipper SubGhz Nice Flor-S Keys\n"
+            "  Extracted by SubGhz Toolkit\n"
+            "====================================\n\n");
+
+        stream_write_format(stream, "Total Bytes: %zu\n\n", read);
+
+        // Affichage hexadécimal (16 octets par ligne)
+        for(size_t i = 0; i < read; i++) {
+            stream_write_format(stream, "%02X ", buffer[i]);
+            if((i+1) % 16 == 0) stream_write_str(stream, "\n");
+        }
+        stream_write_str(stream, "\n");
+
+        success = true;
+
+    } while(0);
+
+    stream_free(stream);
+    furi_record_close(RECORD_STORAGE);
+
+    return success;
+}
+
 static void subghz_toolkit_advanced_analysis(SubGhzToolkitApp *app)
 {
     view_dispatcher_switch_to_view(app->view_dispatcher, SubGhzToolkitViewLoading);
@@ -699,6 +778,13 @@ static void subghz_toolkit_show_protocols_list(SubGhzToolkitApp *app)
         subghz_toolkit_submenu_callback,
         app);
 
+    submenu_add_item(
+        app->submenu,
+        "Export Nice Flor-S keys",
+        SubGhzToolkitSubmenuIndexExportNiceFlorS,
+        subghz_toolkit_submenu_callback,
+        app);
+    
     submenu_add_item(
         app->submenu,
         "List SubGhz Protocols",
